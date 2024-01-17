@@ -1,2 +1,1 @@
-# rust-template
-an empty crate
+# chimera 🐉
