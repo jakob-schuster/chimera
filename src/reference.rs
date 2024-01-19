@@ -1,9 +1,11 @@
+use std::{collections::{HashSet, HashMap}, hash::Hash, borrow::Borrow};
+
 use bio::pattern_matching::myers::{Myers, long};
 use itertools::Itertools;
 
 use crate::Args;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum VarMyers {
     Short(Myers::<u64>),
     Long(long::Myers::<u64>)
@@ -28,7 +30,7 @@ impl VarMyers {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Pattern {
     pub seq: Vec<u8>,
     pub myers: VarMyers
@@ -63,6 +65,19 @@ impl Guide {
             nicking: Pattern::new(record.nicking.as_bytes()),
         }
     }
+}
+
+#[derive(Clone)]
+pub struct EfficientGuide {
+    pub pattern: Pattern,
+    pub names: Vec<String>
+}
+
+#[derive(Clone)]
+pub struct EfficientGuides {
+    pub spacers: Vec<EfficientGuide>,
+    pub extensions: Vec<EfficientGuide>,
+    pub nickings: Vec<EfficientGuide>,
 }
 
 impl NamedPattern {
@@ -149,4 +164,46 @@ fn parse_reference(reference_tsv: &str) -> Vec<Guide> {
     }
 
     guides
+}
+
+impl EfficientGuides {
+    pub fn parse_reference(reference_tsv: &str) -> Vec<Guide> {
+        let mut reader = csv::ReaderBuilder::new()
+            .delimiter(b'\t')
+            .has_headers(false)
+            .from_path(reference_tsv)
+            .expect("Bad reference file!");
+
+        let mut guides = Vec::new();
+
+        for result in reader.deserialize() {
+            // read a record
+            let record: TSVRecord = result
+                .expect("Bad reference row!");
+
+            // add it to the guides
+            guides.push(Guide::new(record));
+        }
+
+        guides
+    }
+
+    pub fn new(guides: &Vec<Guide>) -> EfficientGuides {
+        fn make_guides(guides: &Vec<Guide>, f: fn(&Guide) -> Pattern) -> Vec<EfficientGuide> {
+            let all_names = guides.clone().into_iter().map(|g| (g.name.clone(), f(&g)));
+
+            all_names.clone().group_by(|(_, pattern)| pattern.to_owned()).into_iter()
+                .map(|(pattern, group)| 
+                    EfficientGuide { 
+                        pattern: pattern.clone(), 
+                        names: group.map(|(name, _)| name).collect_vec()})
+                .collect_vec()
+        }
+
+        EfficientGuides { 
+            spacers: make_guides(&guides, |g| g.spacer.clone()), 
+            extensions: make_guides(&guides, |g| g.extension.clone()), 
+            nickings: make_guides(&guides, |g| g.nicking.clone())
+        }
+    }    
 }

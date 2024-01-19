@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use crate::reference::{Ref, Guide, Pattern};
+use crate::reference::{Ref, Guide, Pattern, EfficientGuides, EfficientGuide};
 
 pub fn split_cys4_regions<'a>(seq: &'a [u8], reference: &Ref) -> Option<(&'a [u8], &'a [u8])> {
     let max_dist = 6;
@@ -65,19 +65,21 @@ pub fn chimeric(
     nicking_seq: &[u8], 
     reference: &Ref
 ) -> bool {
-    fn contains_match(seq: &[u8], patterns: Vec<(String, Pattern)>) -> Vec<String> {
-        let tolerance = 5;
+    fn all_matching_names(seq: &[u8], patterns: Vec<(String, Pattern)>) -> Vec<String> {
+        let tolerance = 0;
 
-        let a = patterns.into_iter()
+        let all_matches = patterns.into_iter()
             .map(| (name, pattern) | pattern.clone()
                 .get_matches(seq, 10).into_iter()
                     .min_by_key(|(_, _, dist)| *dist).and_then(|a| Some((name, a))))
             .filter_map(|o| o)
             .sorted_by_key(|(_, (_, _, dist))| *dist);
 
-        if let Some((_, (_, _, best_dist))) = a.clone().next() {
-            a
-                .filter(|(_, (_, _, dist))| *dist <= best_dist + tolerance)
+        // pull out the best distance from the matches
+        if let Some((_, (_, _, best_dist))) = all_matches.clone().next() {
+            // then, just grab the names of everything that matches within the tolerance
+            all_matches
+                .take_while(|(_, (_, _, dist))| *dist <= best_dist + tolerance)
                 .map(|(n, _)| n)
                 .collect_vec()
         } else {
@@ -85,17 +87,17 @@ pub fn chimeric(
         }
     }
 
-    let best_spacer_names = contains_match(spacer_seq, reference.guides.clone()
+    let best_spacer_names = all_matching_names(spacer_seq, reference.guides.clone()
         .into_iter()
             .map(| Guide { name, spacer, extension, nicking } | 
                 (name, spacer)).collect_vec());
 
-    let best_extension_names = contains_match(extension_seq, reference.guides.clone()
+    let best_extension_names = all_matching_names(extension_seq, reference.guides.clone()
         .into_iter()
             .map(| Guide { name, spacer, extension, nicking } | 
                 (name, extension)).collect_vec());
 
-    let best_nicking_names = contains_match(spacer_seq, reference.guides.clone()
+    let best_nicking_names = all_matching_names(nicking_seq, reference.guides.clone()
         .into_iter()
             .map(| Guide { name, spacer, extension, nicking } | 
                 (name, nicking)).collect_vec());
@@ -121,6 +123,56 @@ pub fn chimeric(
     // !found_match
     // let results = [best_spacer_names, best_extension_names, best_nicking_names];
     
+}
+
+
+/// Tries as best as possible to detect chimeras
+pub fn chimeric_new(
+    spacer_seq: &[u8], 
+    extension_seq: &[u8], 
+    nicking_seq: &[u8], 
+    efficient_guides: &EfficientGuides
+) -> bool {
+
+    fn all_matching_names(
+        seq: &[u8], 
+        patterns: Vec<EfficientGuide>
+    ) -> Vec<String> {
+        let tolerance = 0;
+
+        let all_matches = patterns.into_iter()
+            .map(|EfficientGuide { pattern, names }|
+                pattern.clone().get_matches(seq, 10)
+                    .into_iter()
+                    .min_by_key(|(_, _, dist)| *dist)
+                    .and_then(|a| Some((names, a))))
+                    .filter_map(|o| o)
+                    .sorted_by_key(|(_, (_, _, dist))| *dist);
+        
+        if let Some((_, (_, _, best_dist))) = all_matches.clone().next() {
+            all_matches
+                .take_while(|(_, (_, _, dist))| *dist <= best_dist + tolerance)
+                .map(|(v, _)| v)
+                .concat()
+                
+        } else {
+            Vec::new()
+        }
+    }
+
+    let best_spacer_names = 
+        all_matching_names(spacer_seq, efficient_guides.spacers.clone());
+    let best_extension_names = 
+        all_matching_names(extension_seq, efficient_guides.extensions.clone());
+    let best_nicking_names = 
+        all_matching_names(nicking_seq, efficient_guides.nickings.clone());
+
+    let names = best_spacer_names.into_iter()
+        .filter(|name| best_extension_names.contains(name))
+        .filter(|name| best_nicking_names.contains(name))
+        .collect_vec();
+    
+    names.is_empty()
 }
 
 pub fn break_into_regions<'a>(seq: &'a [u8], reference: &Ref) -> Option<(&'a [u8], &'a [u8], &'a [u8])> {

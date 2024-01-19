@@ -1,0 +1,48 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'chimera'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=chimera",
+                    "--package=chimera"
+                ],
+                "filter": {
+                    "name": "chimera",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "-i", "local/chimera/PE_CRISPRlib_5_S8_L001_R1_001/1000/input.fastq",
+                "-r", "local/chimera/CRISPR_primeediting_guides_Miles_MyD88_oligos.onlypegRNA-ngRNA_forchimerasupper.txt"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'chimera'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=chimera",
+                    "--package=chimera"
+                ],
+                "filter": {
+                    "name": "chimera",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

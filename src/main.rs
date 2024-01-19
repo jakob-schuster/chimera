@@ -1,5 +1,7 @@
 use clap::Parser;
 
+use crate::reference::EfficientGuides;
+
 mod find;
 mod reference;
 
@@ -57,8 +59,12 @@ mod input {
 }
 
 fn main() {
+    println!("Started..");
+
     let arg = Args::parse();
     let reference = reference::Ref::new(&arg);
+
+    println!("Parsed reference..");
 
     // let seq = b"GGCTTGTGGAAAGGACGAAAACCGCTGTCTCTTCCCCACAGAGGGTTTAAGAGCTAGAAATAGCAAGTTAAAATAAGGCTAGTCCGTTATCGACTTGAAAAAGTCGCACCGAGTCGGTGCGCTTCAAGATTTACTTTTGGCAATCGTCCTCTGTGGGGAAGTGCGCGGTTCTATCTAGTTACGCGTTAAACCAACTAGAAGTTGACTGCCGTATAGGCTGGCTCCTTCAAGAATTAGTTTGTTTTAGAGCTTGAAAATGAAAGTTTACATAGGGGTTGTCCGTTTTCAATTTTAAAACGTG";
     // let seq = 
@@ -69,6 +75,10 @@ fn main() {
     
     let mut out = vec![];
     let (mut ok, mut good, mut chimeric, mut total) = (0, 0, 0, 0);
+
+    let efficient_guides = EfficientGuides::new(&reference.guides);
+    println!("Produced efficient reference..");
+
     for result in records {
         match result {
             Ok(record) => {
@@ -77,13 +87,13 @@ fn main() {
                     find::break_into_regions(record.seq(), &reference) {
                     ok += 1;
 
-                    if find::chimeric(
+                    if find::chimeric_new(
                         spacer_seq, 
                         extension_seq, 
                         nicking_seq, 
-                        &reference
+                        &efficient_guides
                     ) { 
-                        chimeric += 1 
+                        chimeric += 1
                     }
                 }
 
