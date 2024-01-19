@@ -36,104 +36,12 @@ fn split_scaffold_regions<'a>(
     }
 }
 
-/// Tries as best as possible to match the reference
-fn match_reference(
-    spacer_seq: &[u8], 
-    extension_seq: &[u8], 
-    nicking_seq: &[u8], 
-    reference: &Ref
-) -> Option<String> {
-    let mut name = None;
-    for guide in reference.guides.clone() {
-        if !guide.spacer.clone().get_matches(spacer_seq, 4).is_empty() &&
-            !guide.extension.clone().get_matches(extension_seq, 4).is_empty() &&
-            !guide.nicking.clone().get_matches(nicking_seq, 4).is_empty() {
-            
-            // return one the minute you find it
-            name = Some(String::from(guide.name));
-            break
-        }
-    }
-    
-    name
-}
-
-/// Tries as best as possible to detect chimeras
-pub fn chimeric(
-    spacer_seq: &[u8], 
-    extension_seq: &[u8], 
-    nicking_seq: &[u8], 
-    reference: &Ref
-) -> bool {
-    fn all_matching_names(seq: &[u8], patterns: Vec<(String, Pattern)>) -> Vec<String> {
-        let tolerance = 0;
-
-        let all_matches = patterns.into_iter()
-            .map(| (name, pattern) | pattern.clone()
-                .get_matches(seq, 10).into_iter()
-                    .min_by_key(|(_, _, dist)| *dist).and_then(|a| Some((name, a))))
-            .filter_map(|o| o)
-            .sorted_by_key(|(_, (_, _, dist))| *dist);
-
-        // pull out the best distance from the matches
-        if let Some((_, (_, _, best_dist))) = all_matches.clone().next() {
-            // then, just grab the names of everything that matches within the tolerance
-            all_matches
-                .take_while(|(_, (_, _, dist))| *dist <= best_dist + tolerance)
-                .map(|(n, _)| n)
-                .collect_vec()
-        } else {
-            Vec::new()
-        }
-    }
-
-    let best_spacer_names = all_matching_names(spacer_seq, reference.guides.clone()
-        .into_iter()
-            .map(| Guide { name, spacer, extension, nicking } | 
-                (name, spacer)).collect_vec());
-
-    let best_extension_names = all_matching_names(extension_seq, reference.guides.clone()
-        .into_iter()
-            .map(| Guide { name, spacer, extension, nicking } | 
-                (name, extension)).collect_vec());
-
-    let best_nicking_names = all_matching_names(nicking_seq, reference.guides.clone()
-        .into_iter()
-            .map(| Guide { name, spacer, extension, nicking } | 
-                (name, nicking)).collect_vec());
-
-    let names = best_spacer_names.into_iter()
-        .filter(|name| best_extension_names.contains(name))
-        .filter(|name| best_nicking_names.contains(name))
-        .collect_vec();
-    
-    names.is_empty()
-
-    // let mut found_match = false;
-    // for spacer_name in &best_spacer_names {
-    //     for extension_name in &best_extension_names {
-    //         for nicking_name in &best_nicking_names {
-    //             if [spacer_name, extension_name, nicking_name].into_iter().all_equal() {
-    //                 found_match = true;
-    //             }
-    //         }
-    //     }
-    // }
-
-    // !found_match
-    // let results = [best_spacer_names, best_extension_names, best_nicking_names];
-    
-}
-
-
-/// Tries as best as possible to detect chimeras
-pub fn chimeric_new(
+pub fn match_reference_all(
     spacer_seq: &[u8], 
     extension_seq: &[u8], 
     nicking_seq: &[u8], 
     efficient_guides: &EfficientGuides
-) -> bool {
-
+) -> Vec<String> {
     fn all_matching_names(
         seq: &[u8], 
         patterns: Vec<EfficientGuide>
@@ -154,7 +62,6 @@ pub fn chimeric_new(
                 .take_while(|(_, (_, _, dist))| *dist <= best_dist + tolerance)
                 .map(|(v, _)| v)
                 .concat()
-                
         } else {
             Vec::new()
         }
@@ -172,7 +79,67 @@ pub fn chimeric_new(
         .filter(|name| best_nicking_names.contains(name))
         .collect_vec();
     
-    names.is_empty()
+    names
+}
+
+#[derive(Clone)]
+pub enum StructureResult {
+    // (scaf, cys4, scaf) structure can be found
+    WellStructured(RefResult),
+
+    // no structure can be found
+    BadlyStructured,
+}
+
+#[derive(Clone)]
+pub enum RefResult {
+    // there is exactly one best (spacer, extension, nicking) matching a valid triple from the reference
+    Valid(String),
+
+    // there are no best (spacer, extension, nicking) matching a triple from the reference
+    Chimera,
+    
+    // there are multiple best (spacer, extension, nicking) which match different reference triples
+    Ambiguous,
+}
+
+pub fn structure_classify(
+    seq: &[u8],
+    reference: &Ref,
+    efficient_guides: &EfficientGuides
+) -> StructureResult {
+    match break_into_regions(seq, reference) {
+        Some((spacer_seq, extension_seq, nicking_seq)) => 
+            StructureResult::WellStructured(reference_classify(
+                spacer_seq, extension_seq, nicking_seq, efficient_guides
+            )),
+        None =>
+            StructureResult::BadlyStructured,
+    }
+}
+
+pub fn reference_classify(
+    spacer_seq: &[u8], 
+    extension_seq: &[u8], 
+    nicking_seq: &[u8], 
+    efficient_guides: &EfficientGuides
+) -> RefResult {
+    match &match_reference_all(spacer_seq, extension_seq, nicking_seq, efficient_guides)[..] {
+        [] => RefResult::Chimera,
+        [name] => RefResult::Valid(name.clone()),
+        _ => RefResult::Ambiguous
+    }
+}
+
+/// Tries as best as possible to detect chimeras
+pub fn chimeric(
+    spacer_seq: &[u8], 
+    extension_seq: &[u8], 
+    nicking_seq: &[u8], 
+    efficient_guides: &EfficientGuides
+) -> bool {
+    // a read is chimeric if it isn't a good match with any of the references
+    match_reference_all(spacer_seq, extension_seq, nicking_seq, efficient_guides).is_empty()
 }
 
 pub fn break_into_regions<'a>(seq: &'a [u8], reference: &Ref) -> Option<(&'a [u8], &'a [u8], &'a [u8])> {
@@ -183,12 +150,4 @@ pub fn break_into_regions<'a>(seq: &'a [u8], reference: &Ref) -> Option<(&'a [u8
     let (cys4_first, cys4_second) = split_cys4_regions(after_scaffold, reference)?;
 
     Some((before_scaffold, cys4_first, cys4_second))
-}
-
-pub fn find(seq: &[u8], reference: &Ref) -> Option<String> {
-    // first divide it up into regions
-    let (before_scaffold, cys4_first, cys4_second) = break_into_regions(seq, reference)?;
-
-    // try to match against all the references
-    match_reference(before_scaffold, cys4_first, cys4_second, reference)
 }

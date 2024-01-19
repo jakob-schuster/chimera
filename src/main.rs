@@ -1,6 +1,9 @@
-use clap::Parser;
+use std::any::{Any, TypeId};
 
-use crate::reference::EfficientGuides;
+use clap::Parser;
+use itertools::Itertools;
+
+use crate::{reference::EfficientGuides, find::{StructureResult, RefResult}};
 
 mod find;
 mod reference;
@@ -66,15 +69,10 @@ fn main() {
 
     println!("Parsed reference..");
 
-    // let seq = b"GGCTTGTGGAAAGGACGAAAACCGCTGTCTCTTCCCCACAGAGGGTTTAAGAGCTAGAAATAGCAAGTTAAAATAAGGCTAGTCCGTTATCGACTTGAAAAAGTCGCACCGAGTCGGTGCGCTTCAAGATTTACTTTTGGCAATCGTCCTCTGTGGGGAAGTGCGCGGTTCTATCTAGTTACGCGTTAAACCAACTAGAAGTTGACTGCCGTATAGGCTGGCTCCTTCAAGAATTAGTTTGTTTTAGAGCTTGAAAATGAAAGTTTACATAGGGGTTGTCCGTTTTCAATTTTAAAACGTG";
-    // let seq = 
-    //     b"GTACTTGTGGAAAGGACGAAACACCGACTTTGAGTACTTGGAGATCGTTTAAGAGCTAGAAATAGCAAGTTAAAATAAGGCTAGTCCGTTATCGACTTGAAAAAGTCGCACCGAGTCGGTGCTCTCCAGTTGTCGGATCTCCAAGTACTCACGCGGTTCTATCTAGTTACGCGTTAAACCAACTAGAAGTTCACTGCCGTATAGGCAGCCGCTTGTGTCTCCAGTTGTGTTATAGTGCTAGAAATAGCAAGTTACAATAAGGCTAGTCGCTTTTCAACTTGAAAAAGTGCCACCGACTGGG";
-
     let records = bio::io::fastq::Reader::new(input::reader(&arg))
         .records();
     
     let mut out = vec![];
-    let (mut ok, mut good, mut chimeric, mut total) = (0, 0, 0, 0);
 
     let efficient_guides = EfficientGuides::new(&reference.guides);
     println!("Produced efficient reference..");
@@ -82,37 +80,36 @@ fn main() {
     for result in records {
         match result {
             Ok(record) => {
-
-                if let Some((spacer_seq, extension_seq, nicking_seq)) = 
-                    find::break_into_regions(record.seq(), &reference) {
-                    ok += 1;
-
-                    if find::chimeric_new(
-                        spacer_seq, 
-                        extension_seq, 
-                        nicking_seq, 
-                        &efficient_guides
-                    ) { 
-                        chimeric += 1
-                    }
-                }
-
-                if let Some(name) = find::find(record.seq(), &reference) {
-                    out.push((String::from(record.id()), name));
-
-                    good += 1;
-                }
-
-                total += 1;
+                out.push(find::structure_classify(record.seq(), &reference, &efficient_guides));
             },
             Err(_) => panic!("Bad record!"),
         }
     }
 
-    println!("found scaffold and cys4 structure: {} / {} = {}", 
+    let total = out.clone().len();
+    
+    let ok = out.clone().into_iter().filter(|r| {
+        matches!(r, StructureResult::WellStructured(_))
+    }).collect_vec().len();
+
+    let good = out.clone().into_iter().filter(|r| {
+        matches!(r, StructureResult::WellStructured(RefResult::Valid(_)))
+    }).collect_vec().len();
+
+    let chimeric = out.clone().into_iter().filter(|r| {
+        matches!(r, StructureResult::WellStructured(RefResult::Chimera))
+    }).collect_vec().len();
+
+    let ambiguous = out.clone().into_iter().filter(|r| {
+        matches!(r, StructureResult::WellStructured(RefResult::Ambiguous))
+    }).collect_vec().len();
+
+    println!("found scaffold and cys4 structure: {} / {} = {}%", 
         ok, total, (ok as f32) / (total as f32) * 100.0);
-    println!("found triple of (spacer, extension, nicking): {} / {} = {} ({}% of well-structured reads)", 
+    println!("found triple of (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
         good, total, (good as f32) / (total as f32) * 100.0, (good as f32) / (ok as f32) * 100.0);
-    println!("chimeric (spacer, extension, nicking): {} / {} = {} ({}% of well-structured reads)", 
-        chimeric, total, (chimeric as f32) / (total as f32) * 100.0, (chimeric as f32) / (ok as f32) * 100.0);
+    println!("chimeric (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
+            chimeric, total, (chimeric as f32) / (total as f32) * 100.0, (chimeric as f32) / (ok as f32) * 100.0);
+    println!("ambiguous (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
+        ambiguous, total, (ambiguous as f32) / (total as f32) * 100.0, (ambiguous as f32) / (ok as f32) * 100.0);
 }
