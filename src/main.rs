@@ -86,13 +86,17 @@ fn main() {
         }
     }
 
+    print_stats(&out);
+}
+
+fn print_stats(out: &Vec<StructureResult>) {
     let total = out.clone().len();
     
-    let ok = out.clone().into_iter().filter(|r| {
+    let well_structured = out.clone().into_iter().filter(|r| {
         matches!(r, StructureResult::WellStructured(_))
     }).collect_vec().len();
 
-    let good = out.clone().into_iter().filter(|r| {
+    let valid = out.clone().into_iter().filter(|r| {
         matches!(r, StructureResult::WellStructured(RefResult::Valid(_)))
     }).collect_vec().len();
 
@@ -104,12 +108,12 @@ fn main() {
         matches!(r, StructureResult::WellStructured(RefResult::Ambiguous))
     }).collect_vec().len();
 
-    println!("found scaffold and cys4 structure: {} / {} = {}%", 
-        ok, total, (ok as f32) / (total as f32) * 100.0);
-    println!("found triple of (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
-        good, total, (good as f32) / (total as f32) * 100.0, (good as f32) / (ok as f32) * 100.0);
+    println!("well-structured (scaffold - cys4 - scaffold): {} / {} = {}%", 
+        well_structured, total, (well_structured as f32) / (total as f32) * 100.0);
+    println!("valid (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
+        valid, total, (valid as f32) / (total as f32) * 100.0, (valid as f32) / (well_structured as f32) * 100.0);
     println!("chimeric (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
-            chimeric, total, (chimeric as f32) / (total as f32) * 100.0, (chimeric as f32) / (ok as f32) * 100.0);
+            chimeric, total, (chimeric as f32) / (total as f32) * 100.0, (chimeric as f32) / (well_structured as f32) * 100.0);
     println!("ambiguous (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
-        ambiguous, total, (ambiguous as f32) / (total as f32) * 100.0, (ambiguous as f32) / (ok as f32) * 100.0);
+        ambiguous, total, (ambiguous as f32) / (total as f32) * 100.0, (ambiguous as f32) / (well_structured as f32) * 100.0);
 }
