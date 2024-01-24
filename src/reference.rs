@@ -21,7 +21,7 @@ impl VarMyers {
     }
     
 
-    fn find_all(&mut self, seq: &[u8], edit_dist: u8) -> Vec<(usize, usize, u8)> {
+    fn find_all(&mut self, seq: &[u8], edit_dist: u8) -> Vec<(usize, usize, u8)> {        
         match self {
             VarMyers::Short(s) => s.find_all(seq, edit_dist).collect_vec(),
             VarMyers::Long(l) => l.find_all(seq, edit_dist as usize)
@@ -60,7 +60,7 @@ impl Guide {
     fn new(record: TSVRecord) -> Self {
         Guide {
             name: record.name,
-            spacer: Pattern::new(record.spacer.as_bytes()),
+            spacer: Pattern::new(record.spacer.as_bytes(), ),
             extension: Pattern::new(record.extension.as_bytes()),
             nicking: Pattern::new(record.nicking.as_bytes()),
         }
@@ -97,22 +97,23 @@ impl Pattern {
         }
     }
 
-    pub fn get_matches(&mut self, seq: &[u8], edit_dist: u8) -> Vec<(usize, usize, u8)> {
-        let mut matches = self.myers.find_all(seq, edit_dist);
-        
-        // self.myers.find_all(seq, self.edit_dist).collect_vec();
+    pub fn get_matches(&mut self, seq: &[u8], error_rate: f32) -> Vec<(usize, usize, f32)> {
+        let edit_dist = (error_rate * (self.seq.len() as f32)).floor() as u8;
 
+        let mut matches = self.myers.find_all(seq, edit_dist).into_iter()
+            .map(|(s, e, d)| (s, e, (d as f32 / self.seq.len() as f32)))
+            .collect_vec();
         matches
-            .sort_by_key(|(_, _, dist)| *dist);
+            .sort_by(|(_, _, dist), (_, _, b_dist)| dist.partial_cmp(b_dist).unwrap());
 
-        fn disjoint(m1: &(usize, usize, u8), m2: &(usize, usize, u8)) -> bool {
+        fn disjoint<T>(m1: &(usize, usize, T), m2: &(usize, usize, T)) -> bool {
             let (start1, end1, _) = *m1;
             let (start2, end2, _) = *m2;
 
             return start2 > end1 || start1 > end2;
         }
 
-        let mut best: Vec<(usize, usize, u8)> = vec![];
+        let mut best: Vec<(usize, usize, f32)> = vec![];
         for m@(_, _, _) in matches {
             let dis = best.clone().into_iter()
                 .map(|n| disjoint(&m, &n))
@@ -167,27 +168,6 @@ fn parse_reference(reference_tsv: &str) -> Vec<Guide> {
 }
 
 impl EfficientGuides {
-    pub fn parse_reference(reference_tsv: &str) -> Vec<Guide> {
-        let mut reader = csv::ReaderBuilder::new()
-            .delimiter(b'\t')
-            .has_headers(false)
-            .from_path(reference_tsv)
-            .expect("Bad reference file!");
-
-        let mut guides = Vec::new();
-
-        for result in reader.deserialize() {
-            // read a record
-            let record: TSVRecord = result
-                .expect("Bad reference row!");
-
-            // add it to the guides
-            guides.push(Guide::new(record));
-        }
-
-        guides
-    }
-
     pub fn new(guides: &Vec<Guide>) -> EfficientGuides {
         fn make_guides(guides: &Vec<Guide>, f: fn(&Guide) -> Pattern) -> Vec<EfficientGuide> {
             let all_names = guides.clone().into_iter().map(|g| (g.name.clone(), f(&g)));
