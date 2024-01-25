@@ -5,6 +5,22 @@ use itertools::Itertools;
 
 use crate::Args;
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct Mismatch {
+    pub len: usize,
+    pub dist: usize,
+}
+
+impl Mismatch {
+    pub fn new(len: usize, dist: usize) -> Self {
+        Mismatch { len, dist }
+    }
+
+    pub fn error_rate(&self) -> f32 {
+        (self.dist as f32) / (self.len as f32)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum VarMyers {
     Short(Myers::<u64>),
@@ -97,30 +113,30 @@ impl Pattern {
         }
     }
 
-    pub fn get_matches(&mut self, seq: &[u8], error_rate: f32) -> Vec<(usize, usize, f32)> {
+    pub fn get_matches(&self, seq: &[u8], error_rate: f32) -> Vec<(usize, usize, Mismatch)> {
         let edit_dist = (error_rate * (self.seq.len() as f32)).floor() as u8;
 
-        let mut matches = self.myers.find_all(seq, edit_dist).into_iter()
-            .map(|(s, e, d)| (s, e, (d as f32 / self.seq.len() as f32)))
+        let mut matches = self.myers.clone().find_all(seq, edit_dist).into_iter()
+            .map(|(s, e, d)| (s, e, Mismatch::new(self.seq.len(), d as usize)))
             .collect_vec();
         matches
-            .sort_by(|(_, _, dist), (_, _, b_dist)| dist.partial_cmp(b_dist).unwrap());
+            .sort_by_key(|(_, _, dist)| dist.clone());
 
         fn disjoint<T>(m1: &(usize, usize, T), m2: &(usize, usize, T)) -> bool {
             let (start1, end1, _) = *m1;
             let (start2, end2, _) = *m2;
 
-            return start2 > end1 || start1 > end2;
+            start2 > end1 || start1 > end2
         }
 
-        let mut best: Vec<(usize, usize, f32)> = vec![];
+        let mut best: Vec<(usize, usize, Mismatch)> = vec![];
         for m@(_, _, _) in matches {
             let dis = best.clone().into_iter()
                 .map(|n| disjoint(&m, &n))
                 .all(|b| b);
             
             if dis {
-                best.push(m.to_owned());
+                best.push(m.clone());
             }
         }
 
@@ -168,11 +184,11 @@ fn parse_reference(reference_tsv: &str) -> Vec<Guide> {
 }
 
 impl EfficientGuides {
-    pub fn new(guides: &Vec<Guide>) -> EfficientGuides {
-        fn make_guides(guides: &Vec<Guide>, f: fn(&Guide) -> Pattern) -> Vec<EfficientGuide> {
-            let all_names = guides.clone().into_iter().map(|g| (g.name.clone(), f(&g)));
+    pub fn new(guides: &[Guide]) -> EfficientGuides {
+        fn make_guides(guides: &[Guide], f: fn(&Guide) -> Pattern) -> Vec<EfficientGuide> {
+            let all_names = guides.iter().map(|g| (g.name.clone(), f(g)));
 
-            all_names.clone().group_by(|(_, pattern)| pattern.to_owned()).into_iter()
+            all_names.group_by(|(_, pattern)| pattern.to_owned()).into_iter()
                 .map(|(pattern, group)| 
                     EfficientGuide { 
                         pattern: pattern.clone(), 
@@ -181,9 +197,34 @@ impl EfficientGuides {
         }
 
         EfficientGuides { 
-            spacers: make_guides(&guides, |g| g.spacer.clone()), 
-            extensions: make_guides(&guides, |g| g.extension.clone()), 
-            nickings: make_guides(&guides, |g| g.nicking.clone())
+            spacers: make_guides(guides, |g| g.spacer.clone()), 
+            extensions: make_guides(guides, |g| g.extension.clone()), 
+            nickings: make_guides(guides, |g| g.nicking.clone())
         }
-    }    
+    }
+}
+
+pub struct FinalGuides {
+    pub spacers: HashMap<String, Pattern>,
+    pub extensions: HashMap<String, Pattern>,
+    pub nickings: HashMap<String, Pattern>,
+}
+
+impl FinalGuides {
+    pub fn new(guides: &[Guide]) -> FinalGuides {
+        FinalGuides {
+            spacers: guides.iter()
+            .map(|Guide {name, spacer, extension: _, nicking: _ }| 
+                (name.clone(), spacer.clone())
+            ).collect(),
+            extensions: guides.iter()
+            .map(|Guide {name, spacer: _, extension, nicking: _ }| 
+                (name.clone(), extension.clone())
+            ).collect(),
+            nickings: guides.iter()
+            .map(|Guide {name, spacer: _, extension: _, nicking }| 
+                (name.clone(), nicking.clone())
+            ).collect(),
+        }
+    }
 }

@@ -5,6 +5,7 @@ use clap::{Parser, builder::Str};
 use itertools::Itertools;
 use output::writer;
 use rayon::iter::{IntoParallelIterator, ParallelIterator, IndexedParallelIterator};
+use reference::FinalGuides;
 
 use crate::{reference::EfficientGuides, find::{StructureResult, RefResult}};
 
@@ -35,6 +36,7 @@ pub struct Args {
     cys4: String,
                                            
     #[arg(short, long, default_value_t = String::from("GTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGGCTAGTCCGTTATCAACTTGAAAAAGTGGCACCGAGTCGGTGC"))]
+    // #[arg(short, long, default_value_t = String::from("GTTTCAGAGCTAGAAATAGCAAGTTGAAATAAGGCTAGTCCGTTATCAACTTGAAAAAGTGGCACCGAGTCGGTGC"))]
     scaffold: String,
 
     /// Edit distance used for reference sequences.
@@ -82,12 +84,12 @@ mod output {
     use crate::find::StructureResult;
 
     pub fn print_header<T: Write>(output: &mut T) {
-        write!(output, "id\tsequence\tcdr3_sequence\n")
+        writeln!(output, "id\tsequence\tcdr3_sequence")
         .expect("Couldn't write header line to output!");
     }
     
     pub fn print_one<T: Write>(output: &mut T, output_record: (String, StructureResult)) {
-        write!(output, "{}\t{:?}\n", output_record.0, output_record.1)
+        writeln!(output, "{}\t{:?}", output_record.0, output_record.1)
             .expect("Couldn't write line to output!");
     }
 
@@ -127,6 +129,7 @@ fn main() {
     let mut writer = writer(&args);
 
     let efficient_guides = EfficientGuides::new(&reference.guides);
+    let final_guides = FinalGuides::new(&reference.guides);
     // println!("Produced efficient reference..");
 
     let mut out = Vec::new();
@@ -140,7 +143,7 @@ fn main() {
     for chunk in &records.chunks(100000) {
         let mut temp = Vec::new();
         chunk.collect_vec().into_par_iter().map(|result| -> (String, StructureResult) {match result {
-            Ok(record) => (String::from(record.id()), find::structure_classify(record.seq(), &reference, &efficient_guides, args.error_rate)),
+            Ok(record) => (String::from(record.id()), find::structure_classify(record.seq(), &reference, &efficient_guides, &final_guides, args.error_rate)),
             Err(_) => panic!("Bad record!"),
         }}).collect_into_vec(&mut temp);
 
@@ -148,36 +151,36 @@ fn main() {
     }
 
     for (id, structure) in out.clone() {
-        writer.write(format!("{}\t{:?}\n", id, structure).as_bytes());
+        let _ = writer.write(format!("{}\t{:?}\n", id, structure).as_bytes());
     }
 
-    let stats_out = out.into_iter().map(|(_, s)| s).collect();
+    let stats_out = out.into_iter().map(|(_, s)| s).collect_vec();
     print_stats(&stats_out);
 
 }
 
-fn print_stats(out: &Vec<StructureResult>) {
-    let total = out.clone().len();
+fn print_stats(out: &[StructureResult]) {
+    let total = out.len();
     
-    let well_structured = out.clone().into_iter().filter(|r| {
+    let well_structured = out.iter().filter(|r| {
         matches!(r, StructureResult::WellStructured(_))
     }).collect_vec().len();
 
-    let valid_reads_map = out.clone().into_iter().counts();
-    let zipped = valid_reads_map.keys().into_iter().zip(valid_reads_map.values()).sorted_by_key(|(a, b)| **b);
+    let valid_reads_map = out.iter().counts();
+    let zipped = valid_reads_map.keys().zip(valid_reads_map.values()).sorted_by_key(|(_, b)| **b);
     for (k, v) in zipped {
         println!("{:?}\t{}", k, v);
     }
 
-    let valid = out.clone().into_iter().filter(|r| {
+    let valid = out.iter().filter(|r| {
         matches!(r, StructureResult::WellStructured(RefResult::Valid(_, _)))
     }).collect_vec().len();
 
-    let chimeric = out.clone().into_iter().filter(|r| {
+    let chimeric = out.iter().filter(|r| {
         matches!(r, StructureResult::WellStructured(RefResult::Chimera))
     }).collect_vec().len();
 
-    let ambiguous = out.clone().into_iter().filter(|r| {
+    let ambiguous = out.iter().filter(|r| {
         matches!(r, StructureResult::WellStructured(RefResult::Ambiguous))
     }).collect_vec().len();
 
