@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use clap::error;
 use itertools::Itertools;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use crate::reference::{EfficientGuide, EfficientGuides, FinalGuides, Mismatch, Pattern, Ref};
 
 pub fn split_cys4_regions<'a>(
@@ -171,17 +172,27 @@ pub fn match_reference_all_quickly(
 ) -> Vec<(String, Mismatch)> {
 
 
-    fn f_a(name_mismatch: &(String, Mismatch), guides: &HashMap<String, Pattern>, seq: &[u8], error_rate: f32) -> Option<(String, Mismatch)> {
+    fn f_a(
+        name_mismatch: &(String, Mismatch), 
+        guides: &HashMap<String, Pattern>, 
+        seq: &[u8], 
+        error_rate: f32
+    ) -> Option<(String, Mismatch)> {
         let (name, mismatch) = name_mismatch;
         
         let pattern = guides.get(name)?;
         
         match &best_matches(&pattern.get_matches(seq, error_rate), &0.0)[..] {
             [] => None,
-            [(_, _, first), ..] => Some((name.to_owned(), Mismatch { len: mismatch.len + first.len, dist: mismatch.dist + first.dist })),
+            [(_, _, first), ..] => Some((
+                name.to_owned(), 
+                Mismatch { 
+                    len: mismatch.len + first.len, 
+                    dist: mismatch.dist + first.dist 
+                }
+            )),
         }
     }
-
 
     fn f(names: &[(String, Mismatch)], guides: &HashMap<String, Pattern>, seq: &[u8], error_rate: f32) -> Vec<(String, Mismatch)> {
         names.iter()
@@ -196,14 +207,13 @@ pub fn match_reference_all_quickly(
     }
 
     // all names of sequences
-    let names = guides.spacers.keys().map(|a| (a.to_owned(), Mismatch::new(0, 0)));
-
-    let final_names = names.flat_map(|name| f_a(&name, &guides.spacers, spacer_seq, error_rate))
+    let final_names: Vec<_> = guides.spacers.iter().map(|(a, _)| (a.to_owned(), Mismatch::new(0, 0)))
+        .flat_map(|name| f_a(&name, &guides.spacers, spacer_seq, error_rate))
         .map(|(name, mismatch)| (name.to_owned(), mismatch.to_owned()))
         .flat_map(|name_mismatch| f_a(&name_mismatch, &guides.extensions, extension_seq, error_rate))
         .map(|(name, mismatch)| (name.to_owned(), mismatch.to_owned()))
         .flat_map(|name_mismatch| f_a(&name_mismatch, &guides.nickings, nicking_seq, error_rate))
-        .map(|(name, mismatch)| (name.to_owned(), mismatch.to_owned())).collect_vec();
+        .map(|(name, mismatch)| (name.to_owned(), mismatch.to_owned())).collect();
 
         if let Some((_, best)) = final_names.iter().min_by_key(|(_, dist)| dist) {
             final_names.iter().filter(|(_, dist)| dist <= best)

@@ -1,11 +1,11 @@
-use std::{collections::{HashSet, HashMap}, hash::Hash, borrow::Borrow};
+use std::{cmp::Ordering, collections::HashMap, hash::Hash};
 
 use bio::pattern_matching::myers::{Myers, long};
 use itertools::Itertools;
 
 use crate::Args;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Mismatch {
     pub len: usize,
     pub dist: usize,
@@ -20,6 +20,19 @@ impl Mismatch {
         (self.dist as f32) / (self.len as f32)
     }
 }
+
+impl Ord for Mismatch {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.error_rate().partial_cmp(&other.error_rate()).unwrap()
+    }
+}
+
+impl PartialOrd for Mismatch {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum VarMyers {
