@@ -5,7 +5,7 @@ use clap::{Parser, builder::Str};
 use itertools::Itertools;
 use output::writer;
 use rayon::iter::{IntoParallelIterator, ParallelIterator, IndexedParallelIterator};
-use reference::FinalGuides;
+use reference::{FinalGuides, Ref};
 
 use crate::{reference::EfficientGuides, find::{StructureResult, RefResult}};
 
@@ -42,6 +42,9 @@ pub struct Args {
     /// Edit distance used for reference sequences.
     #[arg(short,long, default_value_t = 0.25)]
     error_rate: f32,
+
+    #[arg(long, default_value_t = false)]
+    careful: bool,
 }
 
 pub fn _seq_to_string(seq: &[u8]) -> String {
@@ -133,19 +136,25 @@ fn main() {
     // println!("Produced efficient reference..");
 
     let mut out = Vec::new();
-    // for result in records {
-    //     match result {
-    //         Ok(record) => {out.push((String::from(record.id()), find::structure_classify(record.seq(), &reference, &efficient_guides)))},
-    //         Err(_) => panic!("Bad record!"),
-    //     }
-    // }
+
+    let classify = |seq: &[u8]| -> StructureResult {
+        if args.careful {
+            find::structure_classify_carefully(seq, &reference, &efficient_guides, args.error_rate)
+        } else {
+            find::structure_classify_quickly(seq, &reference, &final_guides, args.error_rate)
+        }
+    };
 
     for chunk in &records.chunks(100000) {
         let mut temp = Vec::new();
-        chunk.collect_vec().into_par_iter().map(|result| -> (String, StructureResult) {match result {
-            Ok(record) => (String::from(record.id()), find::structure_classify(record.seq(), &reference, &efficient_guides, &final_guides, args.error_rate)),
-            Err(_) => panic!("Bad record!"),
-        }}).collect_into_vec(&mut temp);
+        chunk.collect_vec().into_par_iter()
+            .map(|result| -> (String, StructureResult) {
+                match result {
+                    Ok(record) => (String::from(record.id()), classify(record.seq())),
+                    Err(_) => panic!("Bad record!"),
+                }
+            }
+        ).collect_into_vec(&mut temp);
 
         out.append(&mut temp);
     }

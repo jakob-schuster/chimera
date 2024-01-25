@@ -18,6 +18,8 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Check Outputs
+      run: cargo run -i testing/second-run/CAG-B_S20_L001_R1_001/1000/input.fastq -r testing/second-run/reference.tsv -o testing/second-run/CAG-B_S20_L001_R1_001/1000/output.tsv ; wc -l testing/second-run/CAG-B_S20_L001_R1_001/1000/output.tsv
 
   release:
     name: Release ${{ matrix.platform.target }}

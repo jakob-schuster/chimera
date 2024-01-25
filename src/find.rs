@@ -244,33 +244,60 @@ pub enum RefResult {
     Ambiguous,
 }
 
-pub fn structure_classify(
+pub fn structure_classify_carefully(
     seq: &[u8],
     reference: &Ref,
     efficient_guides: &EfficientGuides,
-    final_guides: &FinalGuides,
     error_rate: f32
 ) -> StructureResult {
     match break_into_regions(seq, reference, error_rate) {
         Some((spacer_seq, extension_seq, nicking_seq)) => 
-            StructureResult::WellStructured(reference_classify(
-                spacer_seq, extension_seq, nicking_seq, efficient_guides, final_guides, error_rate
+            StructureResult::WellStructured(reference_classify_carefully(
+                spacer_seq, extension_seq, nicking_seq, efficient_guides, error_rate
             )),
         None =>
             StructureResult::BadlyStructured,
     }
 }
 
-pub fn reference_classify(
+pub fn reference_classify_carefully(
     spacer_seq: &[u8], 
     extension_seq: &[u8], 
     nicking_seq: &[u8], 
     efficient_guides: &EfficientGuides,
+    error_rate: f32
+) -> RefResult {
+    match &match_reference_all_carefully(spacer_seq, extension_seq, nicking_seq, efficient_guides, error_rate)[..] {
+        [] => RefResult::Chimera,
+        [(name, error)] => RefResult::Valid(name.clone(), error.clone()),
+        _ => RefResult::Ambiguous
+    }
+}
+
+pub fn structure_classify_quickly(
+    seq: &[u8],
+    reference: &Ref,
+    final_guides: &FinalGuides,
+    error_rate: f32
+) -> StructureResult {
+    match break_into_regions(seq, reference, error_rate) {
+        Some((spacer_seq, extension_seq, nicking_seq)) => 
+            StructureResult::WellStructured(reference_classify_quickly(
+                spacer_seq, extension_seq, nicking_seq, final_guides, error_rate
+            )),
+        None =>
+            StructureResult::BadlyStructured,
+    }
+}
+
+pub fn reference_classify_quickly(
+    spacer_seq: &[u8], 
+    extension_seq: &[u8], 
+    nicking_seq: &[u8], 
     final_guides: &FinalGuides,
     error_rate: f32
 ) -> RefResult {
     match &match_reference_all_quickly(spacer_seq, extension_seq, nicking_seq, final_guides, error_rate)[..] {
-    // match &match_reference_all_carefully(spacer_seq, extension_seq, nicking_seq, efficient_guides, error_rate)[..] {
         [] => RefResult::Chimera,
         [(name, error)] => RefResult::Valid(name.clone(), error.clone()),
         _ => RefResult::Ambiguous
