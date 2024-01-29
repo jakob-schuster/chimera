@@ -22,6 +22,8 @@ jobs:
       run: ./testing/generate-test-outputs.sh
     - name: Compare 'quick' and 'careful' algorithms
       run: ./testing/compare-outputs.sh testing/second-run/CAG-B_S20_L001_R1_001/1000/careful-output.tsv testing/second-run/CAG-B_S20_L001_R1_001/1000/quick-output.tsv
+    - name: Failing test positive control
+      run: ./testing/compare-outputs.sh testing/second-run/CAG-B_S20_L001_R1_001/1000/careful-output.tsv testing/second-run/CAG-B_S20_L001_R1_001/1000/input.fastq
 
   release:
     name: Release ${{ matrix.platform.target }}
