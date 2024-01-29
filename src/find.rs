@@ -223,12 +223,13 @@ pub fn match_reference_all_quickly(
         }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub enum StructureResult {
     // (.. scaf .. cys4 .. scaf ..) structure can be found
     WellStructured(RefResult),
 
     // no structure can be found
+    #[default]
     BadlyStructured,
 }
 

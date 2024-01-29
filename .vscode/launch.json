@@ -21,7 +21,8 @@
             },
             "args": [
                 // "-i", "local/chimera/old/new-slide-example.fastq",
-                "-i", "local/chimera/first-run/PE_CRISPRlib_5_S8_L001_R1_001/1000/input.fastq",
+                "-i", "local/chimera/first-run/PE_CRISPRlib_5_S8_L001_R1_001/10000/input.fastq",
+                "-o", "local/chimera/first-run/PE_CRISPRlib_5_S8_L001_R1_001/10000/quick-input.fastq",
                 "-r", "local/chimera/first-run/CRISPR_primeediting_guides_Miles_MyD88_oligos.onlypegRNA-ngRNA_forchimerasupper.txt"
             ],
             "cwd": "${workspaceFolder}"

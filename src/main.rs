@@ -1,4 +1,4 @@
-use std::any::{Any, TypeId};
+use std::{any::{Any, TypeId}, fs::File, io::BufWriter};
 
 use bio::stats;
 use clap::{Parser, builder::Str};
@@ -6,6 +6,7 @@ use itertools::Itertools;
 use output::writer;
 use rayon::iter::{IntoParallelIterator, ParallelIterator, IndexedParallelIterator};
 use reference::{FinalGuides, Ref};
+use seq_io::{fastq::RefRecord, parallel::parallel_fastq};
 
 use crate::{reference::EfficientGuides, find::{StructureResult, RefResult}};
 
@@ -23,13 +24,22 @@ mod reference;
 
 #[derive(Parser,Debug)]
 pub struct Args {
-    #[arg(short, long, default_value_t = String::from("stdin"))]
+    #[arg(short, long)]
     input_fastq: String,
 
     #[arg(short,long)]
     reference_tsv: String,
 
-    #[arg(short,long, default_value_t = String::from("stdout"))]
+    #[arg(long, default_value_t = false)]
+    print_stats: bool,
+    
+    #[arg(short, long)]
+    output_chimera_fastq: String,
+
+    #[arg(short, long)]
+    output_valid_fastq: String,
+
+    #[arg(short, long)]
     output_tsv: String,
 
     #[arg(short, long, default_value_t = String::from("GTTCACTGCCGTATAGGCAG"))]
@@ -45,6 +55,7 @@ pub struct Args {
 
     #[arg(long, default_value_t = false)]
     careful: bool,
+
 }
 
 pub fn _seq_to_string(seq: &[u8]) -> String {
@@ -118,24 +129,118 @@ mod output {
     }
 }
 
+// fn main() {
+//     // println!("Started..");
+
+//     let args = Args::parse();
+//     let reference = reference::Ref::new(&args);
+
+//     // println!("Parsed reference..");
+
+//     let records = bio::io::fastq::Reader::new(input::reader(&args))
+//         .records();
+    
+//     let mut writer = writer(&args);
+
+//     let efficient_guides = EfficientGuides::new(&reference.guides);
+//     let final_guides = FinalGuides::new(&reference.guides);
+//     // println!("Produced efficient reference..");
+
+//     let mut out = Vec::new();
+
+//     let classify = |seq: &[u8]| -> StructureResult {
+//         if args.careful {
+//             find::structure_classify_carefully(seq, &reference, &efficient_guides, args.error_rate)
+//         } else {
+//             find::structure_classify_quickly(seq, &reference, &final_guides, args.error_rate)
+//         }
+//     };
+
+//     for chunk in &records.chunks(100000) {
+//         let mut temp = Vec::new();
+//         chunk.collect_vec().into_par_iter()
+//             .map(|result| -> (String, StructureResult) {
+//                 match result {
+//                     Ok(record) => (String::from(record.id()), classify(record.seq())),
+//                     Err(_) => panic!("Bad record!"),
+//                 }
+//             }
+//         ).collect_into_vec(&mut temp);
+
+//         out.append(&mut temp);
+//     }
+
+//     for (id, structure) in out.clone() {
+//         let _ = writer.write(format!("{}\t{:?}\n", id, structure).as_bytes());
+//     }
+
+//     let stats_out = out.into_iter().map(|(_, s)| s).collect_vec();
+//     print_stats(&stats_out);
+
+// }
+
+
+struct OutStats {
+    total: u32,
+    well_structured: u32,
+    chimeric: u32,
+    valid: u32,
+    ambiguous: u32
+}
+
+impl OutStats {
+    fn new() -> Self {
+        OutStats {
+            total: 0, 
+            well_structured: 0, 
+            chimeric: 0, 
+            valid: 0, 
+            ambiguous: 0 
+        }
+    }
+
+    fn add(&mut self, result: &StructureResult) {
+        self.total += 1;
+        match result {
+            StructureResult::WellStructured(w) => {
+                self.well_structured += 1;
+                match w {
+                    RefResult::Valid(_, _) => { self.valid += 1 },
+                    RefResult::Chimera => { self.chimeric += 1 },
+                    RefResult::Ambiguous => { self.ambiguous += 1 },
+                }
+            },
+            StructureResult::BadlyStructured => { },
+        }
+    }
+
+    fn print_stats(&self) {
+        println!("well-structured (scaffold - cys4 - scaffold): {} / {} = {}%", 
+            self.well_structured, self.total, (self.well_structured as f32) / (self.total as f32) * 100.0);
+        println!("valid (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
+            self.valid, self.total, (self.valid as f32) / (self.total as f32) * 100.0, (self.valid as f32) / (self.well_structured as f32) * 100.0);
+        println!("chimeric (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
+                self.chimeric, self.total, (self.chimeric as f32) / (self.total as f32) * 100.0, (self.chimeric as f32) / (self.well_structured as f32) * 100.0);
+        println!("ambiguous (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
+            self.ambiguous, self.total, (self.ambiguous as f32) / (self.total as f32) * 100.0, (self.ambiguous as f32) / (self.well_structured as f32) * 100.0);
+    }
+}
+
 fn main() {
-    // println!("Started..");
+    use seq_io::fastq::{Reader,Record};
 
     let args = Args::parse();
     let reference = reference::Ref::new(&args);
 
-    // println!("Parsed reference..");
+    let reader = Reader::from_path(&args.input_fastq).unwrap();
 
-    let records = bio::io::fastq::Reader::new(input::reader(&args))
-        .records();
-    
     let mut writer = writer(&args);
+    let mut valid_fastq = BufWriter::new(File::create(args.output_valid_fastq).unwrap());
+    let mut chimera_fastq = BufWriter::new(File::create(args.output_chimera_fastq).unwrap());
 
     let efficient_guides = EfficientGuides::new(&reference.guides);
     let final_guides = FinalGuides::new(&reference.guides);
-    // println!("Produced efficient reference..");
 
-    let mut out = Vec::new();
 
     let classify = |seq: &[u8]| -> StructureResult {
         if args.careful {
@@ -145,27 +250,41 @@ fn main() {
         }
     };
 
-    for chunk in &records.chunks(100000) {
-        let mut temp = Vec::new();
-        chunk.collect_vec().into_par_iter()
-            .map(|result| -> (String, StructureResult) {
-                match result {
-                    Ok(record) => (String::from(record.id()), classify(record.seq())),
-                    Err(_) => panic!("Bad record!"),
-                }
+    let f = |record: RefRecord<'_>, out: &mut StructureResult| {
+
+    };
+
+    // let mut out_vec = Vec::new();
+
+    let mut out_stats = OutStats::new();
+    let _ = parallel_fastq(reader, 32, 10000, |record, out| {
+        *out = classify(record.seq());
+    }, |record, out| {
+        if let StructureResult::WellStructured(w) = out {
+            match w {
+                // write down the valid ones
+                RefResult::Valid(_, _) => {
+                    record.write(&mut valid_fastq).unwrap(); 
+                },
+                // write down the chimeras
+                RefResult::Chimera => { 
+                    record.write(&mut chimera_fastq).unwrap(); 
+                },
+                _ => {}
             }
-        ).collect_into_vec(&mut temp);
 
-        out.append(&mut temp);
-    }
+            output::print_one(&mut writer, (String::from(record.id().unwrap()), out.to_owned()));
+        }
 
-    for (id, structure) in out.clone() {
-        let _ = writer.write(format!("{}\t{:?}\n", id, structure).as_bytes());
-    }
+        // keep them all in a big vec
+        out_stats.add(out);
+        // out_vec.push(out.clone());
 
-    let stats_out = out.into_iter().map(|(_, s)| s).collect_vec();
-    print_stats(&stats_out);
+        None::<()>
+    });
 
+    out_stats.print_stats()
+    // print_stats(&out_vec);
 }
 
 fn print_stats(out: &[StructureResult]) {
