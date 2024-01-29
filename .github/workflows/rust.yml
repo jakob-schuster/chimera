@@ -16,10 +16,12 @@ jobs:
     - uses: actions/checkout@v3
     - name: Run tests
       run: cargo test --verbose
-    # - name: Build
-    #   run: cargo build --verbose
-    - name: Check Outputs
-      run: cargo run -- -i testing/second-run/CAG-B_S20_L001_R1_001/1000/input.fastq -r testing/second-run/reference.tsv -o testing/second-run/CAG-B_S20_L001_R1_001/1000/output.tsv ; wc -l testing/second-run/CAG-B_S20_L001_R1_001/1000/output.tsv
+    - name: Build
+      run: cargo build --verbose --release
+    - name: Generate test data outputs
+      run: ./testing/generate-test-outputs.sh
+    - name: Compare 'quick' and 'careful' algorithms
+      run: ./testing/compare-outputs.sh testing/second-run/CAG-B_S20_L001_R1_001/1000/careful-output.tsv testing/second-run/CAG-B_S20_L001_R1_001/1000/quick-output.tsv
 
   release:
     name: Release ${{ matrix.platform.target }}
