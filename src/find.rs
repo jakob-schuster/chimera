@@ -194,25 +194,16 @@ pub fn match_reference_all_quickly(
         }
     }
 
-    fn f(names: &[(String, Mismatch)], guides: &HashMap<String, Pattern>, seq: &[u8], error_rate: f32) -> Vec<(String, Mismatch)> {
-        names.iter()
-            .flat_map(|(name, mismatch)| -> Option<(String, Mismatch)> {
-                let pattern = guides.get(name)?;
-                
-                match &best_matches(&pattern.get_matches(seq, error_rate), &0.0)[..] {
-                    [] => None,
-                    [(_, _, first), ..] => Some((name.to_owned(), Mismatch { len: mismatch.len + first.len, dist: mismatch.dist + first.dist })),
-                }
-            }).collect_vec()
-    }
-
     // all names of sequences
-    let final_names: Vec<_> = guides.spacers.iter().map(|(a, _)| (a.to_owned(), Mismatch::new(0, 0)))
+    let final_names: Vec<_> = guides.spacers.keys()
+        .map(|name| (name.to_owned(), Mismatch::new(0, 0)))
         .flat_map(|name| f_a(&name, &guides.spacers, spacer_seq, error_rate))
         .map(|(name, mismatch)| (name.to_owned(), mismatch.to_owned()))
-        .flat_map(|name_mismatch| f_a(&name_mismatch, &guides.extensions, extension_seq, error_rate))
+        .flat_map(|name_mismatch| 
+            f_a(&name_mismatch, &guides.extensions, extension_seq, error_rate))
         .map(|(name, mismatch)| (name.to_owned(), mismatch.to_owned()))
-        .flat_map(|name_mismatch| f_a(&name_mismatch, &guides.nickings, nicking_seq, error_rate))
+        .flat_map(|name_mismatch| 
+            f_a(&name_mismatch, &guides.nickings, nicking_seq, error_rate))
         .map(|(name, mismatch)| (name.to_owned(), mismatch.to_owned())).collect();
 
         if let Some((_, best)) = final_names.iter().min_by_key(|(_, dist)| dist) {
@@ -323,8 +314,11 @@ pub fn break_into_regions<'a>(seq: &'a [u8], reference: &Ref, error_rate: f32) -
 
     // take the after-scaffold part, and split it by the location of cys4
     let (cys4_first, cys4_second) = split_cys4_regions(after_scaffold, reference, error_rate)?;
+    
+    // take the before-scaffold part, and split that too
+    let (_, spacer_seq) = split_cys4_regions(before_scaffold, reference, error_rate)?;
 
-    Some((before_scaffold, cys4_first, cys4_second))
+    Some((spacer_seq, cys4_first, cys4_second))
 }
 
 /// Uses a shortcut. All positives are true; some negatives are false. ie, there was a superior alignment 

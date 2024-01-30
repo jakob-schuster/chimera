@@ -33,10 +33,10 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     print_stats: bool,
     
-    #[arg(short, long)]
+    #[arg(long)]
     output_chimera_fastq: String,
 
-    #[arg(short, long)]
+    #[arg(long)]
     output_valid_fastq: String,
 
     #[arg(short, long)]
@@ -55,6 +55,13 @@ pub struct Args {
 
     #[arg(long, default_value_t = false)]
     careful: bool,
+
+    #[arg(long, default_value_t = 32)]
+    threads: u32,
+    
+    #[arg(long, default_value_t = 10000)]
+    queue: usize,
+    
 
 }
 
@@ -257,7 +264,7 @@ fn main() {
     // let mut out_vec = Vec::new();
 
     let mut out_stats = OutStats::new();
-    let _ = parallel_fastq(reader, 32, 10000, |record, out| {
+    let _ = parallel_fastq(reader, args.threads, args.queue, |record, out| {
         *out = classify(record.seq());
     }, |record, out| {
         if let StructureResult::WellStructured(w) = out {
