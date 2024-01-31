@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use clap::error;
 use itertools::Itertools;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use crate::reference::{EfficientGuide, EfficientGuides, FinalGuides, Mismatch, Pattern, Ref};
 
 pub fn split_cys4_regions<'a>(
@@ -91,24 +91,24 @@ fn split_scaffold_regions<'a>(
 //     names
 // }
 
-pub fn match_reference_all_carefully(
+pub fn match_reference_all_carefully<'a>(
     spacer_seq: &[u8], 
     extension_seq: &[u8], 
     nicking_seq: &[u8],
-    efficient_guides: &EfficientGuides,
+    efficient_guides: &'a EfficientGuides,
     error_rate: f32
-) -> Vec<(String, Mismatch)> {
+) -> Vec<(&'a str, Mismatch)> {
     // println!("handling seqs {}, {}, {}", _seq_to_string(&spacer_seq), _seq_to_string(&extension_seq), _seq_to_string(&nicking_seq));
 
-    fn all_matching_names(
+    fn all_matching_names<'a>(
         seq: &[u8], 
-        patterns: Vec<EfficientGuide>,
+        patterns: &'a [EfficientGuide],
         error_rate: f32
-    ) -> HashMap<String, Mismatch> {
+    ) -> HashMap<&'a str, Mismatch> {
 
         let tolerance = 0.1;
 
-        let all_matches = patterns.into_iter()
+        let all_matches = patterns.iter()
             .filter_map(|EfficientGuide { pattern, names }|
                 pattern.clone().get_matches(seq, error_rate)
                     .into_iter()
@@ -120,7 +120,7 @@ pub fn match_reference_all_carefully(
         if let Some((_, (_, _, best_dist))) = all_matches.clone().next() {
             all_matches
                 .take_while(|(_, (_, _, dist))| dist.error_rate() <= best_dist.error_rate() + tolerance)
-                .flat_map(|(v, (_, _, dist))| v.into_iter().map(|n| (n, dist.clone())).collect_vec())
+                .flat_map(|(v, (_, _, dist))| v.iter().map(|n| (&n[..], dist)).collect_vec())
                 .collect()
         } else {
             HashMap::new()
@@ -128,11 +128,11 @@ pub fn match_reference_all_carefully(
     }
 
     let best_spacer_names = 
-        all_matching_names(spacer_seq, efficient_guides.spacers.clone(), error_rate);
+        all_matching_names(spacer_seq, &efficient_guides.spacers, error_rate);
     let best_extension_names = 
-        all_matching_names(extension_seq, efficient_guides.extensions.clone(), error_rate);
+        all_matching_names(extension_seq, &efficient_guides.extensions, error_rate);
     let best_nicking_names = 
-        all_matching_names(nicking_seq, efficient_guides.nickings.clone(), error_rate);
+        all_matching_names(nicking_seq, &efficient_guides.nickings, error_rate);
 
     let mut final_names = HashMap::new();
     for (spacer_name, Mismatch { len: spacer_len, dist: spacer_dist }) in best_spacer_names {
@@ -163,29 +163,29 @@ fn best_matches(matches: &[(usize, usize, Mismatch)], tolerance: &f32) -> Vec<(u
     }
 }
 
-pub fn match_reference_all_quickly(
+pub fn match_reference_all_quickly<'a>(
     spacer_seq: &[u8], 
     extension_seq: &[u8], 
     nicking_seq: &[u8],
-    guides: &FinalGuides,
+    guides: &'a FinalGuides,
     error_rate: f32
-) -> Vec<(String, Mismatch)> {
+) -> Vec<(&'a str, Mismatch)> {
 
 
-    fn f_a(
-        name_mismatch: &(String, Mismatch), 
+    fn f_a<'a>(
+        name_mismatch: &(&'a str, Mismatch), 
         guides: &HashMap<String, Pattern>, 
         seq: &[u8], 
         error_rate: f32
-    ) -> Option<(String, Mismatch)> {
+    ) -> Option<(&'a str, Mismatch)> {
         let (name, mismatch) = name_mismatch;
         
-        let pattern = guides.get(name)?;
+        let pattern = guides.get(*name)?;
         
         match &best_matches(&pattern.get_matches(seq, error_rate), &0.0)[..] {
             [] => None,
             [(_, _, first), ..] => Some((
-                name.to_owned(), 
+                name, 
                 Mismatch { 
                     len: mismatch.len + first.len, 
                     dist: mismatch.dist + first.dist 
@@ -194,30 +194,52 @@ pub fn match_reference_all_quickly(
         }
     }
 
+    fn f_b<'a>(
+        name_mismatch: &(&'a str, Mismatch), 
+        guides: &HashMap<String, Pattern>, 
+        seq: &[u8], 
+        error_rate: f32
+    ) -> Option<(&'a str, Mismatch)> {
+        let (name, mismatch) = name_mismatch;
+        
+        let pattern = guides.get(*name)?;
+        
+        pattern.get_best_match(seq, error_rate).map(|m| (
+            *name,
+            Mismatch {
+                len: mismatch.len + m.len,
+                dist: mismatch.dist + m.dist,
+            }
+        ))
+    }
+
+
+    // all adequate spacers
+    // let spacer_names: Vec<_> = guides.spacers.keys()
+    //     .map(|name| (&name[..], Mismatch::new(0, 0)))
+    //     .flat_map(|name| f_a(&name, &guides.spacers, spacer_seq, error_rate*0.5)).collect();
+
     // all names of sequences
     let final_names: Vec<_> = guides.spacers.keys()
-        .map(|name| (name.to_owned(), Mismatch::new(0, 0)))
-        .flat_map(|name| f_a(&name, &guides.spacers, spacer_seq, error_rate))
-        .map(|(name, mismatch)| (name.to_owned(), mismatch.to_owned()))
+        .map(|name| (&name[..], Mismatch::new(0, 0)))
+        .flat_map(|name| f_b(&name, &guides.spacers, spacer_seq, error_rate))
         .flat_map(|name_mismatch| 
-            f_a(&name_mismatch, &guides.extensions, extension_seq, error_rate))
-        .map(|(name, mismatch)| (name.to_owned(), mismatch.to_owned()))
+            f_b(&name_mismatch, &guides.extensions, extension_seq, error_rate))
         .flat_map(|name_mismatch| 
-            f_a(&name_mismatch, &guides.nickings, nicking_seq, error_rate))
-        .map(|(name, mismatch)| (name.to_owned(), mismatch.to_owned())).collect();
+            f_b(&name_mismatch, &guides.nickings, nicking_seq, error_rate)).collect();
 
-        if let Some((_, best)) = final_names.iter().min_by_key(|(_, dist)| dist) {
-            final_names.iter().filter(|(_, dist)| dist <= best)
-                .map(|a| a.to_owned()).collect_vec()
-        } else {
-            vec![]
-        }
+    if let Some((_, best)) = final_names.iter().min_by_key(|(_, dist)| dist) {
+        final_names.iter().filter(|(_, dist)| dist <= best)
+            .map(|(name, mismatch)| (*name, mismatch.to_owned())).collect()
+    } else {
+        vec![]
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
-pub enum StructureResult {
+pub enum StructureResult<'a> {
     // (.. scaf .. cys4 .. scaf ..) structure can be found
-    WellStructured(RefResult),
+    WellStructured(RefResult<'a>),
 
     // no structure can be found
     #[default]
@@ -225,9 +247,9 @@ pub enum StructureResult {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub enum RefResult {
+pub enum RefResult<'a> {
     // there is exactly one best (spacer, extension, nicking) matching a valid triple from the reference
-    Valid(String, Mismatch),
+    Valid(&'a str, Mismatch),
 
     // there are no best (spacer, extension, nicking) matching a triple from the reference
     Chimera,
@@ -236,12 +258,12 @@ pub enum RefResult {
     Ambiguous,
 }
 
-pub fn structure_classify_carefully(
+pub fn structure_classify_carefully<'a>(
     seq: &[u8],
     reference: &Ref,
-    efficient_guides: &EfficientGuides,
+    efficient_guides: &'a EfficientGuides,
     error_rate: f32
-) -> StructureResult {
+) -> StructureResult<'a> {
     match break_into_regions(seq, reference, error_rate) {
         Some((spacer_seq, extension_seq, nicking_seq)) => 
             StructureResult::WellStructured(reference_classify_carefully(
@@ -252,26 +274,26 @@ pub fn structure_classify_carefully(
     }
 }
 
-pub fn reference_classify_carefully(
+pub fn reference_classify_carefully<'a>(
     spacer_seq: &[u8], 
     extension_seq: &[u8], 
     nicking_seq: &[u8], 
-    efficient_guides: &EfficientGuides,
+    efficient_guides: &'a EfficientGuides,
     error_rate: f32
-) -> RefResult {
+) -> RefResult<'a> {
     match &match_reference_all_carefully(spacer_seq, extension_seq, nicking_seq, efficient_guides, error_rate)[..] {
         [] => RefResult::Chimera,
-        [(name, error)] => RefResult::Valid(name.clone(), error.clone()),
+        [(name, error)] => RefResult::Valid(name, error.clone()),
         _ => RefResult::Ambiguous
     }
 }
 
-pub fn structure_classify_quickly(
+pub fn structure_classify_quickly<'a>(
     seq: &[u8],
     reference: &Ref,
-    final_guides: &FinalGuides,
+    final_guides: &'a FinalGuides,
     error_rate: f32
-) -> StructureResult {
+) -> StructureResult<'a> {
     match break_into_regions(seq, reference, error_rate) {
         Some((spacer_seq, extension_seq, nicking_seq)) => 
             StructureResult::WellStructured(reference_classify_quickly(
@@ -282,16 +304,16 @@ pub fn structure_classify_quickly(
     }
 }
 
-pub fn reference_classify_quickly(
+pub fn reference_classify_quickly<'a>(
     spacer_seq: &[u8], 
     extension_seq: &[u8], 
     nicking_seq: &[u8], 
-    final_guides: &FinalGuides,
+    final_guides: &'a FinalGuides,
     error_rate: f32
-) -> RefResult {
+) -> RefResult<'a> {
     match &match_reference_all_quickly(spacer_seq, extension_seq, nicking_seq, final_guides, error_rate)[..] {
         [] => RefResult::Chimera,
-        [(name, error)] => RefResult::Valid(name.clone(), error.clone()),
+        [(name, error)] => RefResult::Valid(*name, *error),
         _ => RefResult::Ambiguous
     }
 }
@@ -313,12 +335,22 @@ pub fn break_into_regions<'a>(seq: &'a [u8], reference: &Ref, error_rate: f32) -
     let (before_scaffold, after_scaffold) = split_scaffold_regions(seq, reference, error_rate)?;
 
     // take the after-scaffold part, and split it by the location of cys4
-    let (cys4_first, cys4_second) = split_cys4_regions(after_scaffold, reference, error_rate)?;
+    let (extension_seq, nicking_seq) = split_cys4_regions(after_scaffold, reference, error_rate)?;
     
     // take the before-scaffold part, and split that too
     let (_, spacer_seq) = split_cys4_regions(before_scaffold, reference, error_rate)?;
 
-    Some((spacer_seq, cys4_first, cys4_second))
+    Some((spacer_seq, extension_seq, nicking_seq))
+}
+
+pub fn break_into_regions_relaxed<'a>(seq: &'a [u8], reference: &Ref, error_rate: f32) -> Option<(&'a [u8], &'a [u8], &'a [u8])> {
+    // first, find scaffolds. there should be two
+    let (spacer_seq, after_scaffold) = split_scaffold_regions(seq, reference, error_rate)?;
+
+    // take the after-scaffold part, and split it by the location of cys4
+    let (extension_seq, nicking_seq) = split_cys4_regions(after_scaffold, reference, error_rate)?;    
+
+    Some((spacer_seq, extension_seq, nicking_seq))
 }
 
 /// Uses a shortcut. All positives are true; some negatives are false. ie, there was a superior alignment 

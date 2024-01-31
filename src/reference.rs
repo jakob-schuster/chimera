@@ -5,7 +5,7 @@ use itertools::Itertools;
 
 use crate::Args;
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Mismatch {
     pub len: usize,
     pub dist: usize,
@@ -57,6 +57,27 @@ impl VarMyers {
                 .map(|(s, e, d)| (s, e, d as u8)).collect_vec(),
         }
     }
+
+    fn find_best_end(&self, seq: &[u8], edit_dist: u8) -> Option<usize> {
+        match self {
+            VarMyers::Short(s) => s.find_all_end(seq, edit_dist).map(|(_, d)| d as usize).min(),
+            VarMyers::Long(l) => l.find_all_end(seq, edit_dist.into()).map(|(_, d)| d).min(),
+        }
+    }
+
+    fn find_best_end2(&self, seq: &[u8], edit_dist: u8) -> Option<usize> {
+        let dist = match self {
+            VarMyers::Short(s) => {let (_, dist) = s.find_best_end(seq); dist },
+            VarMyers::Long(l) => {let (_, dist) = l.find_best_end(seq); dist as u8 },
+        };
+
+        if dist <= edit_dist {
+            Some(dist as usize)
+        } else {
+            None
+        }
+    }
+
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -126,14 +147,23 @@ impl Pattern {
         }
     }
 
+    pub fn get_best_match(&self, seq: &[u8], error_rate: f32) -> Option<Mismatch> {
+        let edit_dist = (error_rate * (self.seq.len() as f32)).floor() as u8;
+
+        let dist = self.myers.find_best_end(seq, edit_dist)?;
+
+        Some(Mismatch {
+            len: self.seq.len(),
+            dist
+        })
+    }
+
     pub fn get_matches(&self, seq: &[u8], error_rate: f32) -> Vec<(usize, usize, Mismatch)> {
         let edit_dist = (error_rate * (self.seq.len() as f32)).floor() as u8;
 
-        let mut matches = self.myers.clone().find_all(seq, edit_dist).into_iter()
-            .map(|(s, e, d)| (s, e, Mismatch::new(self.seq.len(), d as usize)))
-            .collect_vec();
-        matches
-            .sort_by_key(|(_, _, dist)| dist.clone());
+        let matches = self.myers.clone().find_all(seq, edit_dist).iter()
+            .map(|(s, e, d)| (*s, *e, Mismatch::new(self.seq.len(), *d as usize)))
+            .sorted_by_key(|(_, _, dist)| *dist);
 
         fn disjoint<T>(m1: &(usize, usize, T), m2: &(usize, usize, T)) -> bool {
             let (start1, end1, _) = *m1;
@@ -142,14 +172,11 @@ impl Pattern {
             start2 > end1 || start1 > end2
         }
 
-        let mut best: Vec<(usize, usize, Mismatch)> = vec![];
+        let mut best: Vec<(usize, usize, Mismatch)> = Vec::new();
         for m@(_, _, _) in matches {
-            let dis = best.clone().into_iter()
-                .map(|n| disjoint(&m, &n))
-                .all(|b| b);
-            
-            if dis {
-                best.push(m.clone());
+            // check if m is disjoint with all n in best
+            if best.iter().all(|n| disjoint(&m, n)) {
+                best.push(m);
             }
         }
 

@@ -33,11 +33,11 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     print_stats: bool,
     
-    #[arg(long)]
-    output_chimera_fastq: String,
+    #[arg(short, long)]
+    chimera_fastq: String,
 
-    #[arg(long)]
-    output_valid_fastq: String,
+    #[arg(short, long)]
+    valid_fastq: String,
 
     #[arg(short, long)]
     output_tsv: String,
@@ -242,8 +242,8 @@ fn main() {
     let reader = Reader::from_path(&args.input_fastq).unwrap();
 
     let mut writer = writer(&args);
-    let mut valid_fastq = BufWriter::new(File::create(args.output_valid_fastq).unwrap());
-    let mut chimera_fastq = BufWriter::new(File::create(args.output_chimera_fastq).unwrap());
+    let mut valid_fastq = BufWriter::new(File::create(args.valid_fastq).unwrap());
+    let mut chimera_fastq = BufWriter::new(File::create(args.chimera_fastq).unwrap());
 
     let efficient_guides = EfficientGuides::new(&reference.guides);
     let final_guides = FinalGuides::new(&reference.guides);
@@ -279,9 +279,9 @@ fn main() {
                 },
                 _ => {}
             }
-
-            output::print_one(&mut writer, (String::from(record.id().unwrap()), out.to_owned()));
         }
+
+        output::print_one(&mut writer, (String::from(record.id().unwrap()), out.to_owned()));
 
         // keep them all in a big vec
         out_stats.add(out);
