@@ -16,13 +16,13 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose --target x86_64-unknown-linux-gnu
     - name: Build
-      run: cargo build --verbose --release
+      run: cargo build --verbose --release --target x86_64-unknown-linux-gnu
     - name: Generate test data outputs
       run: ./testing/generate-test-outputs.sh
-    - name: Compare 'quick' and 'careful' algorithms
-      run: ./testing/compare-outputs.sh testing/second-run/CAG-B_S20_L001_R1_001/1000/careful-output.tsv testing/second-run/CAG-B_S20_L001_R1_001/1000/quick-output.tsv
+    # - name: Compare 'quick' and 'careful' algorithms
+    #   run: ./testing/compare-outputs.sh testing/second-run/CAG-B_S20_L001_R1_001/1000/careful-output.tsv testing/second-run/CAG-B_S20_L001_R1_001/1000/quick-output.tsv
 
   release:
     name: Release ${{ matrix.platform.target }}

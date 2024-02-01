@@ -1,6 +1,6 @@
 TEST_INPUT=testing/second-run/CAG-B_S20_L001_R1_001/1000
 
-./target/release/chimera \
+./target/x86_64-unknown-linux-gnu/release/chimera \
     -r testing/second-run/reference.tsv \
     -i ${TEST_INPUT}/input.fastq \
     -c ${TEST_INPUT}/careful-chimera.fastq \
@@ -8,7 +8,7 @@ TEST_INPUT=testing/second-run/CAG-B_S20_L001_R1_001/1000
     -o ${TEST_INPUT}/careful-output.tsv \
     --careful
 
-./target/release/chimera \
+./target/x86_64-unknown-linux-gnu/release/chimera \
     -r testing/second-run/reference.tsv \
     -i ${TEST_INPUT}/input.fastq \
     -c ${TEST_INPUT}/quick-chimera.fastq \
