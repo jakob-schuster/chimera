@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 bio = "*"
 clap = { version = "4.4.10", features = ["derive"] }
-flate2 = "*"
+flate2 = { version = "*", features = ["zlib-ng"] }
 itertools = "*"
 rayon = "*"
 serde = "*"
