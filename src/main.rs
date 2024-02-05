@@ -1,4 +1,4 @@
-use std::{any::{Any, TypeId}, fs::File, io::BufWriter};
+use std::{any::{Any, TypeId}, fs::File, io::{BufWriter, Write}};
 
 use bio::stats;
 use clap::{Parser, builder::Str};
@@ -24,7 +24,7 @@ mod reference;
 
 #[derive(Parser,Debug)]
 pub struct Args {
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t = String::from("stdin"))]
     input_fastq: String,
 
     #[arg(short,long)]
@@ -109,7 +109,7 @@ mod output {
         .expect("Couldn't write header line to output!");
     }
     
-    pub fn print_one<T: Write>(output: &mut T, output_record: (String, StructureResult)) {
+    pub fn print_one<T: Write>(output: &mut T, output_record: (&str, &StructureResult)) {
         writeln!(output, "{}\t{:?}", output_record.0, output_record.1)
             .expect("Couldn't write line to output!");
     }
@@ -136,55 +136,73 @@ mod output {
     }
 }
 
-// fn main() {
-//     // println!("Started..");
+fn main() {
+    // seq_io_main();
+    bio_main();
+}
 
-//     let args = Args::parse();
-//     let reference = reference::Ref::new(&args);
+fn bio_main() {
+    // println!("Started..");
 
-//     // println!("Parsed reference..");
+    let args = Args::parse();
+    let reference = reference::Ref::new(&args);
 
-//     let records = bio::io::fastq::Reader::new(input::reader(&args))
-//         .records();
+    // println!("Parsed reference..");
+
+    let records = bio::io::fastq::Reader::new(input::reader(&args))
+        .records();
     
-//     let mut writer = writer(&args);
+    let mut writer = writer(&args);
+    let mut valid_fastq = BufWriter::new(File::create(args.valid_fastq).unwrap());
+    let mut chimera_fastq = BufWriter::new(File::create(args.chimera_fastq).unwrap());
 
-//     let efficient_guides = EfficientGuides::new(&reference.guides);
-//     let final_guides = FinalGuides::new(&reference.guides);
-//     // println!("Produced efficient reference..");
+    let efficient_guides = EfficientGuides::new(&reference.guides);
+    let final_guides = FinalGuides::new(&reference.guides);
+    // println!("Produced efficient reference..");
 
-//     let mut out = Vec::new();
+    let classify = |seq: &[u8]| -> StructureResult {
+        if args.careful {
+            find::structure_classify_carefully(seq, &reference, &efficient_guides, args.error_rate)
+        } else {
+            find::structure_classify_quickly(seq, &reference, &final_guides, args.error_rate)
+        }
+    };
 
-//     let classify = |seq: &[u8]| -> StructureResult {
-//         if args.careful {
-//             find::structure_classify_carefully(seq, &reference, &efficient_guides, args.error_rate)
-//         } else {
-//             find::structure_classify_quickly(seq, &reference, &final_guides, args.error_rate)
-//         }
-//     };
+    let mut out_stats = OutStats::new();
+    for chunk in &records.chunks(100000) {
+        let mut temp = Vec::new();
+        chunk.collect_vec().into_par_iter()
+            .map(|result| {
+                match result {
+                    Ok(record) => (record.to_string(), record.id().to_owned(), classify(record.seq())),
+                    Err(_) => panic!("Bad record!"),
+                }
+            }
+        ).collect_into_vec(&mut temp);
 
-//     for chunk in &records.chunks(100000) {
-//         let mut temp = Vec::new();
-//         chunk.collect_vec().into_par_iter()
-//             .map(|result| -> (String, StructureResult) {
-//                 match result {
-//                     Ok(record) => (String::from(record.id()), classify(record.seq())),
-//                     Err(_) => panic!("Bad record!"),
-//                 }
-//             }
-//         ).collect_into_vec(&mut temp);
+        for (record_string, id, out) in temp {
+            out_stats.add(&out);
+            output::print_one(&mut writer, (&id, &out));
 
-//         out.append(&mut temp);
-//     }
+            if let StructureResult::WellStructured(w) = out {
+                match w {
+                    // write down the valid ones
+                    RefResult::Valid(_, _) => {
+                        Result::unwrap(valid_fastq.write(record_string[..].as_bytes())); 
+                    },
+                    // write down the chimeras
+                    RefResult::Chimera => { 
+                        Result::unwrap(chimera_fastq.write(record_string[..].as_bytes()));
+                    },
+                    _ => {}
+                }
+            }
 
-//     for (id, structure) in out.clone() {
-//         let _ = writer.write(format!("{}\t{:?}\n", id, structure).as_bytes());
-//     }
+        }
+    }
 
-//     let stats_out = out.into_iter().map(|(_, s)| s).collect_vec();
-//     print_stats(&stats_out);
-
-// }
+    out_stats.print_stats()
+}
 
 
 struct OutStats {
@@ -233,7 +251,7 @@ impl OutStats {
     }
 }
 
-fn main() {
+fn seq_io_main() {
     use seq_io::fastq::{Reader,Record};
 
     let args = Args::parse();
@@ -281,7 +299,7 @@ fn main() {
             }
         }
 
-        output::print_one(&mut writer, (String::from(record.id().unwrap()), out.to_owned()));
+        output::print_one(&mut writer, (record.id().unwrap(), out));
 
         // keep them all in a big vec
         out_stats.add(out);
