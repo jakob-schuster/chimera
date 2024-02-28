@@ -153,8 +153,10 @@ fn bio_main() {
         .records();
     
     let mut writer = writer(&args);
-    let mut valid_fastq = BufWriter::new(File::create(args.valid_fastq).unwrap());
-    let mut chimera_fastq = BufWriter::new(File::create(args.chimera_fastq).unwrap());
+    let mut valid_fastq = BufWriter::new(
+        File::create(args.valid_fastq).unwrap());
+    let mut chimera_fastq = BufWriter::new(
+        File::create(args.chimera_fastq).unwrap());
 
     let efficient_guides = EfficientGuides::new(&reference.guides);
     let final_guides = FinalGuides::new(&reference.guides);
@@ -201,7 +203,7 @@ fn bio_main() {
         }
     }
 
-    out_stats.print_stats()
+    out_stats.print_stats_csv()
 }
 
 
@@ -248,6 +250,14 @@ impl OutStats {
                 self.chimeric, self.total, (self.chimeric as f32) / (self.total as f32) * 100.0, (self.chimeric as f32) / (self.well_structured as f32) * 100.0);
         println!("ambiguous (spacer, extension, nicking): {} / {} = {}% ({}% of well-structured reads)", 
             self.ambiguous, self.total, (self.ambiguous as f32) / (self.total as f32) * 100.0, (self.ambiguous as f32) / (self.well_structured as f32) * 100.0);
+    }
+
+    fn print_stats_csv(&self) {
+        println!("reads,{}", self.total);
+        println!("wellstructured,{}", self.well_structured);
+        println!("valid,{}", self.valid);
+        println!("chimeric,{}", self.chimeric);
+        println!("ambiguous,{}", self.ambiguous);
     }
 }
 
